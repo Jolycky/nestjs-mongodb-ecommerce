@@ -1,52 +1,67 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { User, UserDocument } from './schemas/user.schema';
-import { CreateUserDto, UpdateUserDto } from './dto'; // Make sure to create DTOs
-
+import { Injectable, Res } from '@nestjs/common';
+import { JWTService } from 'src/helpers/jwt.helper';
+import { UserModel } from 'src/database/models/user.model';
+import { ErrorResponse } from 'src/helpers/errorHandling.helper';
+import { Response } from 'express';
 @Injectable()
 export class UserService {
-  constructor(@InjectModel(User.name) private userModel: Model<UserDocument>) {}
+  constructor(
+    private readonly jwtService: JWTService,
+    private readonly userModel: UserModel,
+    private readonly errorResponse: ErrorResponse,
+  ) {}
 
-  // Create a new user
-  async create(createUserDto: CreateUserDto): Promise<User> {
-    const createdUser = new this.userModel(createUserDto);
-    return createdUser.save();
-  }
+  async getUserBasicInfo(
+    @Res({ passthrough: true }) res: Response,
+    accessToken: string,
+  ): Promise<any> {
+    try {
+      const decodedToken = this.jwtService.verifyJWT(accessToken);
 
-  // Find all users
-  async findAll(): Promise<User[]> {
-    return this.userModel.find().exec();
-  }
+      const user = await this.userModel.findUserById(decodedToken.id);
 
-  // Find a user by ID
-  async findOne(id: string): Promise<User> {
-    const user = await this.userModel.findById(id).exec();
-    if (!user) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+      if (!user)
+        return this.errorResponse.handleError(res, 404, 'User Not Found.');
+
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'User info sent successfully.',
+        userBasicInfo: {
+          email: user.email,
+          firstName: user.firstName || null,
+          lastName: user.lastName || null,
+        },
+      };
+    } catch (error) {
+      return this.errorResponse.handleError(res, 500, error.message);
     }
-    return user;
   }
 
-  // Update a user by ID
-  async update(id: string, updateUserDto: UpdateUserDto): Promise<User> {
-    const updatedUser = await this.userModel
-      .findByIdAndUpdate(id, updateUserDto, {
-        new: true,
-      })
-      .exec();
-    if (!updatedUser) {
-      throw new NotFoundException(`User with ID ${id} not found`);
-    }
-    return updatedUser;
-  }
+  async updateNameForLoggedInUser(
+    @Res() res: Response,
+    body: { firstName: string; lastName: string },
+    accessToken: string,
+  ): Promise<any> {
+    try {
+      const decodedToken = this.jwtService.verifyJWT(accessToken);
 
-  // Delete a user by ID
-  async remove(id: string): Promise<User> {
-    const deletedUser = await this.userModel.findByIdAndDelete(id).exec();
-    if (!deletedUser) {
-      throw new NotFoundException(`User with ID ${id} not found`);
+      const user = await this.userModel.updateUserById(decodedToken.id, body);
+
+      if (!user)
+        return this.errorResponse.handleError(res, 404, 'User Not Found.');
+
+      return {
+        success: true,
+        statusCode: 200,
+        message: 'User updated successfully.',
+        userInfo: {
+          firstName: user.firstName,
+          lastName: user.lastName,
+        },
+      };
+    } catch (error) {
+      return this.errorResponse.handleError(res, 500, error.message);
     }
-    return deletedUser;
   }
 }
